@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { buildInputData } from './keys';
+import { commandOutputFromBuffer } from './output';
 
 interface SessionInfo {
   id: string;
@@ -391,19 +392,12 @@ export class PersistentSessionServer extends EventEmitter {
     // mangled the input — otherwise ANSI cleaning can hide a corrupt write.
     this.warnIfInputCorrupted(session);
 
-    // Clean output: remove the marker line and the echo command itself
-    const markerRegex = new RegExp(
-      `echo "${this.exitCodeMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\$\\?${this.exitCodeEnd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\r?\\n?`,
-      'g'
+    // Command output = the buffer up to the exit marker (see output.ts for
+    // why cutting there matters: stripping the marker's newline glued the next
+    // prompt onto newline-less output and the ANSI cleaner then dropped it).
+    const cleanOutput = commandOutputFromBuffer(
+      session.outputBuffer, this.exitCodeMarker, this.exitCodeEnd
     );
-    const exitRegex = new RegExp(
-      `${this.exitCodeMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\d+${this.exitCodeEnd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\r?\\n?`,
-      'g'
-    );
-    const cleanOutput = session.outputBuffer
-      .replace(markerRegex, '')
-      .replace(exitRegex, '')
-      .trim();
 
     const duration = Date.now() - currentCommand.startTime;
 
