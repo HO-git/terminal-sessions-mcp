@@ -38,3 +38,24 @@ test('the old strip-everything approach loses the JSON on the glued buffer (docu
 test('buffer without a marker is returned whole', () => {
   assert.equal(commandOutputFromBuffer('hello\r\n', '<<<EXIT:', '>>>'), 'hello');
 });
+
+// Pins the server's wiring: resolveCommand must use commandOutputFromBuffer.
+// No PTY and no race — the session is a plain object whose buffer already holds
+// the glued prompt. With the old strip-everything code in resolveCommand the
+// JSON is gone (`curl -s ...\nu@h:/w$`).
+test('resolveCommand keeps newline-less output when the next prompt is glued on', async () => {
+  const { PersistentSessionServer } = require('../dist/src/server/session-server-v3');
+  const server = new PersistentSessionServer();
+  const result = await new Promise((resolve) => {
+    const session = {
+      id: 't', logs: [], outputBuffer: base + PROMPT,
+      isProcessingCommand: true, commandQueue: [], tempFiles: [],
+      currentCommand: { command: 'curl -s http://127.0.0.1:8420/api/health', resolve, startTime: Date.now(), timeout: 1000 },
+    };
+    server.resolveCommand(session, 0);
+  });
+  assert.equal(result.exitCode, 0);
+  const out = cleanTerminalOutput(result.output);
+  assert.ok(out.includes(JSON_REPLY), out);
+  assert.ok(!out.includes('<<<EXIT'), out);
+});
